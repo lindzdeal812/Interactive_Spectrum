@@ -1,0 +1,90 @@
+from scipy import interpolate
+from scipy.signal import find_peaks, peak_prominences
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from astropy.io import fits
+from astropy import stats
+import statistics
+import sys
+from matplotlib.widgets import CheckButtons
+from ipywidgets import interact, interactive
+
+data=pd.read_csv("EXLup_fullspec_4.txt", sep='  ', header=None, names=["wave", "flux", "channel"])
+
+for i in range(len(data['wave'])-1):
+    if data['wave'][i] > data['wave'][i+1]:
+        for j in range(i,i+200):
+            if data['wave'][i]>data['wave'][j] and j < len(data['wave']):
+                data['wave'][j]=0
+        else:
+            i=j
+                
+data = (data.drop(data[data.wave == 0].index)).reset_index(drop=True)
+
+wave=data['wave']
+Flux=data['flux']
+channel=data['channel']
+
+model=wave.to_numpy()
+flux=Flux.to_numpy()
+plt.plot(wave,flux)
+
+line_indices, _ = find_peaks(flux, height=0.1)
+all_indices = np.arange(0,len(model))
+line_free = np.array([i for i in all_indices if i not in line_indices])
+
+def find_nearest(array,value):
+    idx = (np.abs(array-value)).argmin()
+    return idx
+wave_lf=model[line_free]
+flux_lf=flux[line_free]
+#error_lf=error[line_free]
+
+def contsub_spline(wavelength, fluxx, flux, peak_threshold, spline_k, spline_s):
+        # find 'valleys'
+        valleys, _ = find_peaks(-1*fluxx, prominence=[0,peak_threshold])
+        spl = interpolate.UnivariateSpline(x=wavelength[valleys], y=fluxx[valleys], k=spline_k)
+        spl.set_smoothing_factor(spline_s)
+        fcontsub = fluxx-spl(wavelength)
+        return fcontsub, spl(wavelength), valleys
+    
+fcontsub1, continuum1, valleys1 = contsub_spline(wave_lf, flux_lf, flux, peak_threshold=0.2, spline_k=2, spline_s=0.05)
+fcontsub2, continuum2, valleys2 = contsub_spline(wave_lf, flux_lf, flux, peak_threshold=0.6,spline_k=2, spline_s=0.1)
+fcontsub3, continuum3, valleys3 = contsub_spline(wave_lf, flux_lf, flux, peak_threshold=0.6,spline_k=2, spline_s=0.03)
+fcontsub4, continuum4, valleys4 = contsub_spline(wave_lf, flux_lf, flux, peak_threshold=0.6,spline_k=2, spline_s=0.05)
+
+
+bound1=find_nearest(wave_lf,4.9)
+bound2=find_nearest(wave_lf,12.6)
+bound3=find_nearest(wave_lf,15.6)
+bound4=find_nearest(wave_lf,21.5)
+bound5=find_nearest(wave_lf,27.)
+
+fig, ax=plt.subplots(figsize=(20, 5))
+plt.ylim([0,1])
+plt.plot(model,Flux,label='raw data') 
+
+plt.plot(wave_lf[bound1:bound2],continuum1[bound1:bound2],color='blue',label='continuum')
+plt.plot(wave_lf[bound2+1:bound3],continuum2[bound2+1:bound3],color='blue',label='continuum')
+plt.plot(wave_lf[bound3+1:bound4],continuum3[bound3+1:bound4],color='blue',label='continuum')
+plt.plot(wave_lf[bound4+1:bound5],continuum4[bound4+1:bound5],color='blue',label='continuum')
+
+plt.plot(wave_lf[bound1:bound2],fcontsub1[bound1:bound2],color='orange',label='cont sub')
+plt.plot(wave_lf[bound2+1:bound3],fcontsub2[bound2+1:bound3],color='orange',label='cont sub')
+plt.plot(wave_lf[bound3+1:bound4],fcontsub3[bound3+1:bound4],color='orange',label='cont sub')
+plt.plot(wave_lf[bound4+1:bound5],fcontsub4[bound4+1:bound5],color='orange',label='cont sub')
+
+fcontsub=np.concatenate((fcontsub1[bound1:bound2],fcontsub2[bound2+1:bound3],fcontsub3[bound3+1:bound4],fcontsub4[bound4+1:bound5]))
+wave_lf_meh=np.concatenate((wave_lf[bound1:bound2],wave_lf[bound2+1:bound3],wave_lf[bound3+1:bound4],wave_lf[bound4+1:bound5]))
+
+handles, labels = plt.gca().get_legend_handles_labels()
+newLabels, newHandles = [], []
+for handle, label in zip(handles, labels):
+    if label not in newLabels:
+        newLabels.append(label)
+        newHandles.append(handle)
+
+plt.legend(newHandles, newLabels)
+plt.show()
